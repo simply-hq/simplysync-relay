@@ -1,0 +1,30 @@
+{
+  "name": "@sbt/relay-cloudflare",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "deploy:worker": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply sbt-relay --local",
+    "migrate:remote": "wrangler d1 migrations apply sbt-relay --remote",
+    "typecheck": "tsc --noEmit"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "Stores encrypted relay events and owner metadata. The relay never receives your finance encryption key."
+      },
+      "BLOBS": {
+        "description": "Stores encrypted attachment chunks. Contents are unreadable without the recovery phrase held on your devices."
+      }
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260712.1",
+    "typescript": "~5.9.2",
+    "wrangler": "4.110.0"
+  }
+}
