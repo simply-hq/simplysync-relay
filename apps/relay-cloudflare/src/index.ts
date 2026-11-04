@@ -272,11 +272,16 @@ async function handlePush(
 
   // Atomically reserve a contiguous seq range for this batch (RETURNING gives
   // the new counter value, so concurrent pushes never collide). Assign by
-  // position; duplicates just leave a harmless gap. The counter only increases.
+  // position; duplicates just leave a harmless gap. The counter only increases
+  // and never falls below the push time in ms: clients keep `seq > cursor`,
+  // so a database rebuilt from nothing or restored from an older backup must
+  // number its events above every cursor an earlier incarnation handed out,
+  // or a device holding one silently receives nothing until the counter
+  // climbs past it again. (Upstream: simplysync#11.)
   const seqRow = await env.DB.prepare(
-    `update relay_meta set value = value + ? where key = 'event_seq' returning value`,
+    `update relay_meta set value = max(value, ?) + ? where key = 'event_seq' returning value`,
   )
-    .bind(prepared.length)
+    .bind(Date.now(), prepared.length)
     .first<{ value: number }>();
   const seqBase = (seqRow?.value ?? prepared.length) - prepared.length;
   const seqHigh = seqBase + prepared.length;
