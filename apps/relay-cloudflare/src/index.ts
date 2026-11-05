@@ -481,15 +481,20 @@ async function handlePull(
   // Cursor is a monotonic seq. A legacy HLC-string cursor parses to 0 -> the
   // client re-pulls once (deduped client-side) then advances on seq.
   const afterSeq = Number.isFinite(Number(after)) ? Number(after) : 0;
-  const { results } = await env.DB.prepare(
-    `select seq, envelope_json from events
-       where owner_id = ? and seq > ?
-       order by seq asc limit ?`,
-  )
-    .bind(ownerId, afterSeq, limit)
-    .all<{ seq: number; envelope_json: string }>();
-
-  const rows = results ?? [];
+  // One D1 round trip for the page and the database epoch (migration 0003):
+  // clients compare the epoch across pulls to notice a relay rebuilt from
+  // nothing and re-seed it. Mirrors upstream listEvents.
+  const [page, epochRow] = await env.DB.batch([
+    env.DB.prepare(
+      `select seq, envelope_json from events
+         where owner_id = ? and seq > ?
+         order by seq asc limit ?`,
+    ).bind(ownerId, afterSeq, limit),
+    env.DB.prepare(`select value from relay_meta where key = 'epoch'`),
+  ]);
+  const rows = (page?.results ?? []) as { seq: number; envelope_json: string }[];
+  const epochValue = (epochRow?.results?.[0] as { value?: number } | undefined)?.value;
+  const epoch = epochValue === undefined ? "" : String(epochValue);
   const events = rows.map(
     (row) => JSON.parse(row.envelope_json) as SyncEnvelope,
   );
@@ -501,7 +506,7 @@ async function handlePull(
   // (which bricked initial sync against a fresh relay). Cloudflare's edge
   // already gzip/brotli-encodes JSON responses per Accept-Encoding, so plain
   // JSON gets the same wire savings with none of the footguns.
-  return json({ events, nextCursor });
+  return json({ events, nextCursor, epoch });
 }
 
 async function handleUsage(
